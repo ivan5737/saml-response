@@ -1,10 +1,10 @@
-package com.saml.response.main;
+package com.saml.util;
 
+import com.saml.constants.Constants;
+import com.saml.exception.Saml2Exception;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -14,6 +14,15 @@ import org.w3c.dom.ls.DOMImplementationLS;
 import org.w3c.dom.ls.LSSerializer;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -24,70 +33,45 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-import java.io.*;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
-public class XmlUtil {
+@Slf4j
+public class Saml2Util {
 
-  private static final Logger LOGGER = LoggerFactory.getLogger(XmlUtil.class);
+  private static final String FEATURE = "http://apache.org/xml/features/disallow-doctype-decl";
 
-  private static final String ASSERTION = "saml:Assertion";
-
-  private static final String SIGNATURE = "ds:Signature";
-
-  private XmlUtil() {}
+  private Saml2Util() {}
 
   /**
    * Method que se encarga de anidar de forma correcta el SAML
    */
-  public static InputStream fixXml(InputStream inputStreamBadXml) throws IOException {
-    // ESTA PARTE OBTIENE EL XML ENCRIPTADO DE EJEMPLO (XML MAL FORMADO)
-    String xmlString = IOUtils.toString(inputStreamBadXml, StandardCharsets.UTF_8);
+  public static byte[] fixSaml2(byte[] byteString) {
     try {
-      // ESTA PARTE DECODIFICA EL SAMLResponse (XML DE EJEMPLO MAL FORMADO)
-      byte[] bytesRes = Base64.decodeBase64(xmlString.getBytes(StandardCharsets.UTF_8));
-      String response = new String(bytesRes, StandardCharsets.UTF_8);
+      String response = new String(Base64.decodeBase64(byteString), StandardCharsets.UTF_8);
 
-      // ESTA PARTE CONVIERTE EL XML A UN objeto de tipo Element
       Element elementXml = generateElementResponse(response);
-
-      // Esta parte genera el NodeList a partir del objeto ELEMENT
       NodeList nodeList = elementXml.getChildNodes();
-
-      // Genera NodeList-Stream para iterar NodeList y obtener Signature
       Stream<Node> streamNode1 = getInputStream(nodeList);
-      // ESTA PARTE OBTIENE EL Signature Y LO CONVIERTE EN el [Node] a remover del ELEMENT
-      Node nodeSign =
-          streamNode1.filter(node -> isValidNode(node, SIGNATURE)).findFirst().orElse(null);
+      Node nodeSign = streamNode1.filter(node -> isValidNode(node, Constants.SIGNATURE)).findFirst()
+          .orElse(null);
 
-      // Si se encontró NODE Signature como NODE 1 se comienza la modification del ELEMENT
       if (nodeSign != null) {
-        // Se elimina el Signature del ELEMENT
         elementXml.removeChild(nodeSign);
-        // Genera NodeList-Stream para encontrar Assertion
         Stream<Node> streamNode2 = getInputStream(nodeList);
-        // Esta parte busca el NODE Assertion para insertarle como hijo el Signature NODE
         streamNode2.forEach(node -> {
-          if (isValidNode(node, ASSERTION)) {
-            // Se inserta como hijo del Assertion el Signature en el objeto ELEMENT
-            elementXml.getElementsByTagName(ASSERTION).item(0).appendChild(nodeSign);
+          if (isValidNode(node, Constants.ASSERTION)) {
+            elementXml.getElementsByTagName(Constants.ASSERTION).item(0).appendChild(nodeSign);
           }
         });
 
-        // El objeto ELEMENT lo convierte a StringWriter para poder generar el String del XML
         StringWriter writer = generateStringWriter(elementXml);
 
-        // SE CONVIERTE A CADENA EL XML NODE Y SE CODIFICA
-        String xmlStringFinal = writer.toString();
-        return generateNewInputStream(xmlStringFinal);
-      } else { // No se encontró un NODE Signature como NODE 1, se retorna el mismo xml
-        return new ByteArrayInputStream(xmlString.getBytes(StandardCharsets.UTF_8));
+        return writer.toString().getBytes();
+      } else {
+        return Base64.decodeBase64(byteString);
       }
     } catch (Exception ex) {
-      LOGGER.error("ERROR EL XML NO SE FORMATEO DE FORMA CORRECTA: ", ex);
-      return new ByteArrayInputStream(xmlString.getBytes(StandardCharsets.UTF_8));
+      log.error(Constants.ERROR_XML_FORMAT, ex);
+      throw new Saml2Exception(ex.getMessage());
     }
   }
 
@@ -97,7 +81,7 @@ public class XmlUtil {
   private static Element generateElementResponse(String response)
       throws ParserConfigurationException, IOException, SAXException {
     DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-    dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+    dbf.setFeature(FEATURE, true);
     dbf.setNamespaceAware(true);
     DocumentBuilder db = dbf.newDocumentBuilder();
     ByteArrayInputStream bis = new ByteArrayInputStream(response.getBytes(StandardCharsets.UTF_8));
@@ -135,22 +119,13 @@ public class XmlUtil {
   }
 
   /**
-   * Method que a partir del XML re-acomodado lo codifica en Base64 y genera InputStream
-   */
-  private static InputStream generateNewInputStream(String xmlStringFinal) {
-    byte[] bytes = Base64.encodeBase64(xmlStringFinal.getBytes());
-    String xmlEncryptedFinal = new String(bytes, StandardCharsets.UTF_8);
-    return new ByteArrayInputStream(xmlEncryptedFinal.getBytes(StandardCharsets.UTF_8));
-  }
-
-  /**
    * Method que sirve solo para imprimir de forma bonita el XML
    */
-  public static void format(String xml) {
+  public static String prettyFormat(String xml) {
     try {
       final InputSource src = new InputSource(new StringReader(xml));
       DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-      factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+      factory.setFeature(FEATURE, true);
       final Node document = factory.newDocumentBuilder().parse(src).getDocumentElement();
       final Boolean keepDeclaration = xml.startsWith("<?xml");
       final DOMImplementationRegistry registry = DOMImplementationRegistry.newInstance();
@@ -160,10 +135,10 @@ public class XmlUtil {
       writer.getDomConfig().setParameter("format-pretty-print", Boolean.TRUE);
       writer.getDomConfig().setParameter("xml-declaration", keepDeclaration);
 
-      String xmlResult = writer.writeToString(document);
-      LOGGER.info(xmlResult);
-    } catch (Exception e) {
-      LOGGER.info("ERROR: ", e);
+      return writer.writeToString(document);
+    } catch (Exception ex) {
+      log.error(Constants.ERROR, ex);
+      throw new Saml2Exception(ex.getMessage());
     }
   }
 }
