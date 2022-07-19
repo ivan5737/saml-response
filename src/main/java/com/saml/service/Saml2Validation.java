@@ -131,9 +131,9 @@ public class Saml2Validation {
   }
 
   /**
-   * Obtiene el basic x509 credential a partir del certificado crt.
+   * Get the basic x509 credential from the crt certificate.
    * 
-   * @return el objeto BasicX509Credential del CRT.
+   * @return the BasicX509Credential object from CRT.
    */
   private BasicX509Credential getBasicX509Credential() {
     if (!ArrayUtils.isNotEmpty(getCertData()))
