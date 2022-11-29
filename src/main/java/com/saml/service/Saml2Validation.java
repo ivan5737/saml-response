@@ -33,7 +33,6 @@ import java.security.cert.X509Certificate;
 @Getter(AccessLevel.PRIVATE)
 public class Saml2Validation {
 
-
   private byte[] certData;
 
   private boolean fixSaml2 = Boolean.FALSE;
