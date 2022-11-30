@@ -17,7 +17,6 @@ public class ExceptionData implements Serializable {
   private String detail;
 
   @Builder.Default
-  private String uuid = new StringBuilder().append(UUID.randomUUID()).append("-")
-      .append(System.currentTimeMillis()).toString();
+  private String uuid = UUID.randomUUID() + "-" + System.currentTimeMillis();
 
 }

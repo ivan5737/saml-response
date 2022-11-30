@@ -101,6 +101,7 @@ public class Saml2Validation {
       Document messageDoc = registry.getParserPool().parse(new ByteArrayInputStream(byteString));
       Unmarshaller unmarshaller =
           registry.getUnmarshallerFactory().getUnmarshaller(Response.DEFAULT_ELEMENT_NAME);
+      assert unmarshaller != null;
       return (Response) unmarshaller.unmarshall(messageDoc.getDocumentElement());
     } catch (Exception ex) {
       log.debug(Constants.ERROR, ex);
